@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#1b1035" />
+    <title>Stack &amp; Smash</title>
+    <style>
+      * {
+        -webkit-tap-highlight-color: transparent;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #1b1035;
+        overflow: hidden;
+        overscroll-behavior: none;
+        touch-action: none; /* evita scroll/zoom accidental en móvil */
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-touch-callout: none;
+      }
+      /* Layout canónico de Phaser: el contenedor llena la ventana y el canvas se
+         centra dentro (FIT). Es el setup que responde bien al touch en móvil. */
+      #game {
+        width: 100%;
+        height: 100%;
+      }
+      #game canvas {
+        display: block;
+        touch-action: none; /* clave: el canvas debe capturar el toque */
+      }
+    </style>
+    <script type="module" crossorigin src="./assets/index-DVYEhVdx.js"></script>
+  </head>
+  <body>
+    <div id="game"></div>
+  </body>
+</html>
