@@ -4,6 +4,14 @@ Juego móvil **hyper-casual** de un solo toque: apilá bloques, el sobrante se
 smashea, no dejes que el ancho llegue a cero. Hecho con **Phaser 3 + Capacitor +
 TypeScript**, apuntado a **Android e iOS** y a un público infantil/juvenil.
 
+### 🎮 [Jugar la demo web →](https://rodrolira.github.io/stack-smash/)
+
+<p align="center">
+  <a href="https://rodrolira.github.io/stack-smash/">
+    <img src="docs/demo.gif" alt="Demo de Stack & Smash" width="320" />
+  </a>
+</p>
+
 > Estado: **scaffold jugable**. Ads e IAP están como *placeholders* con un mock
 > de navegador — todavía no hay SDK nativo instalado.
 
