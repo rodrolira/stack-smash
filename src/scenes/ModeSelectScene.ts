@@ -1,18 +1,17 @@
 import Phaser from 'phaser';
-import { GAME_WIDTH, GAME_HEIGHT, COLORS, LEVELS, LevelDef } from '../config';
-import { SaveManager } from '../systems/SaveManager';
+import { GAME_WIDTH, COLORS, MODES, ModeDef, BANNER_SAFE_Y } from '../config';
 import { AdManager } from '../systems/AdManager';
 import { SoundManager } from '../systems/SoundManager';
+import { totalStars, maxStars } from '../systems/Stages';
 import { createButton } from '../ui/Button';
 import { drawBackground } from '../ui/background';
 import { fadeIn, goto } from '../ui/transitions';
 
-// Selección de nivel. Cada entrada = dificultad (tuning) + modo (mecánica).
-// La lista sale del catálogo LEVELS (config.ts), así agregar un modo no toca
-// esta escena. Muestra el récord por nivel para dar progreso y rejugabilidad.
-export class LevelSelectScene extends Phaser.Scene {
+// Selección de MODO. Cada modo contiene 10 niveles (ver StageSelectScene).
+// Muestra el progreso de estrellas del modo.
+export class ModeSelectScene extends Phaser.Scene {
   constructor() {
-    super('LevelSelect');
+    super('ModeSelect');
   }
 
   create(): void {
@@ -31,23 +30,22 @@ export class LevelSelectScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
-    // Layout compacto para que entren los 6 niveles + botón volver.
-    let y = 250;
-    const gap = 148;
-    for (const level of LEVELS) {
-      this.buildCard(level, cx, y);
+    let y = 240;
+    const gap = 142;
+    for (const mode of MODES) {
+      this.buildCard(mode, cx, y);
       y += gap;
     }
 
-    createButton(this, cx, GAME_HEIGHT - 90, '←  VOLVER', () => goto(this, 'Menu'), {
+    createButton(this, cx, BANNER_SAFE_Y, '←  VOLVER', () => goto(this, 'Menu'), {
       width: 340,
       height: 92,
       fontSize: 32,
     });
   }
 
-  private buildCard(level: LevelDef, cx: number, y: number): void {
-    const best = SaveManager.bestScoreFor(level.id);
+  private buildCard(mode: ModeDef, cx: number, y: number): void {
+    const stars = totalStars(mode.id);
     const cardW = GAME_WIDTH - 90;
     const cardH = 126;
 
@@ -56,14 +54,13 @@ export class LevelSelectScene extends Phaser.Scene {
     const bg = this.add.graphics();
     bg.fillStyle(0x241847, 0.95);
     bg.fillRoundedRect(-cardW / 2, -cardH / 2, cardW, cardH, 20);
-    // Franja de acento del nivel a la izquierda.
-    bg.fillStyle(level.color, 1);
+    bg.fillStyle(mode.color, 1);
     bg.fillRoundedRect(-cardW / 2, -cardH / 2, 14, cardH, { tl: 20, bl: 20, tr: 0, br: 0 });
 
-    const emoji = this.add.text(-cardW / 2 + 60, 0, level.emoji, { fontSize: '52px' }).setOrigin(0.5);
+    const emoji = this.add.text(-cardW / 2 + 60, 0, mode.emoji, { fontSize: '52px' }).setOrigin(0.5);
 
     const label = this.add
-      .text(-cardW / 2 + 110, -30, level.label, {
+      .text(-cardW / 2 + 110, -30, mode.label, {
         fontFamily: 'system-ui, sans-serif',
         fontSize: '40px',
         color: COLORS.text,
@@ -72,16 +69,17 @@ export class LevelSelectScene extends Phaser.Scene {
       .setOrigin(0, 0.5);
 
     const blurb = this.add
-      .text(-cardW / 2 + 110, 12, level.blurb, {
+      .text(-cardW / 2 + 110, 12, mode.blurb, {
         fontFamily: 'system-ui, sans-serif',
         fontSize: '23px',
         color: COLORS.textDim,
-        wordWrap: { width: cardW - 260 },
+        wordWrap: { width: cardW - 280 },
       })
       .setOrigin(0, 0.5);
 
-    const bestText = this.add
-      .text(cardW / 2 - 40, -34, `★ ${best}`, {
+    // Progreso de estrellas del modo.
+    const starsText = this.add
+      .text(cardW / 2 - 40, -32, `⭐ ${stars}/${maxStars()}`, {
         fontFamily: 'system-ui, sans-serif',
         fontSize: '26px',
         color: '#ffd23f',
@@ -89,17 +87,17 @@ export class LevelSelectScene extends Phaser.Scene {
       .setOrigin(1, 0.5);
 
     const playIcon = this.add
-      .text(cardW / 2 - 48, 18, '▶', { fontSize: '44px', color: '#ffffff' })
+      .text(cardW / 2 - 48, 20, '▶', { fontSize: '44px', color: '#ffffff' })
       .setOrigin(0.5);
 
-    card.add([bg, emoji, label, blurb, bestText, playIcon]);
+    card.add([bg, emoji, label, blurb, starsText, playIcon]);
     card.setSize(cardW, cardH);
     card.setInteractive(
       new Phaser.Geom.Rectangle(-cardW / 2, -cardH / 2, cardW, cardH),
       Phaser.Geom.Rectangle.Contains
     );
 
-    let launched = false; // evita doble toque
+    let launched = false;
     card.on('pointerover', () => card.setScale(1.02));
     card.on('pointerout', () => card.setScale(1));
     card.on('pointerdown', () => {
@@ -112,7 +110,7 @@ export class LevelSelectScene extends Phaser.Scene {
         scale: 0.97,
         duration: 70,
         yoyo: true,
-        onComplete: () => goto(this, 'Game', { levelId: level.id }),
+        onComplete: () => goto(this, 'StageSelect', { modeId: mode.id }),
       });
     });
   }

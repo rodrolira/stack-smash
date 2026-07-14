@@ -22,6 +22,11 @@ export interface SaveData {
   soundMuted: boolean;
   onboarded: boolean;
   vibrate: boolean;
+  stageStars: Record<string, number>; // "modo:nivel" → 0..3
+  powerups: Record<string, number>; // inventario: id → cantidad
+  dailyDate: string; // YYYY-MM-DD del set de misiones activo
+  dailyProgress: Record<string, number>; // id de misión → progreso
+  dailyClaimed: string[]; // misiones diarias ya cobradas
 }
 
 const DEFAULT_SAVE: SaveData = {
@@ -38,6 +43,11 @@ const DEFAULT_SAVE: SaveData = {
   soundMuted: false,
   onboarded: false,
   vibrate: true,
+  stageStars: {},
+  powerups: {},
+  dailyDate: '',
+  dailyProgress: {},
+  dailyClaimed: [],
 };
 
 export class SaveManager {
@@ -82,6 +92,26 @@ export class SaveManager {
     d.soundMuted = !!d.soundMuted;
     d.onboarded = !!d.onboarded;
     if (typeof d.vibrate !== 'boolean') d.vibrate = true;
+    if (typeof d.stageStars !== 'object' || d.stageStars === null || Array.isArray(d.stageStars)) {
+      d.stageStars = {};
+    }
+    if (typeof d.powerups !== 'object' || d.powerups === null || Array.isArray(d.powerups)) {
+      d.powerups = {};
+    }
+    if (
+      typeof d.dailyProgress !== 'object' ||
+      d.dailyProgress === null ||
+      Array.isArray(d.dailyProgress)
+    ) {
+      d.dailyProgress = {};
+    }
+    if (!Array.isArray(d.dailyClaimed)) d.dailyClaimed = [];
+    if (typeof d.dailyDate !== 'string') d.dailyDate = '';
+  }
+
+  /** Fecha local de hoy (YYYY-MM-DD). Pública: la usan las misiones diarias. */
+  static today(): string {
+    return this.localDate(new Date());
   }
 
   /** Fecha local en formato YYYY-MM-DD (evita el desfase de UTC de toISOString). */
@@ -259,6 +289,60 @@ export class SaveManager {
   static setVibrate(v: boolean): void {
     this.data.vibrate = v;
     this.persist();
+  }
+
+  // --- Estrellas por nivel (clave "modo:nivel") ---
+  static getStageStars(key: string): number {
+    return this.data.stageStars[key] ?? 0;
+  }
+  static setStageStars(key: string, stars: number): void {
+    this.data.stageStars[key] = Math.max(0, Math.min(3, Math.floor(stars)));
+    this.persist();
+  }
+
+  // --- Inventario de power-ups ---
+  static powerUpCount(id: string): number {
+    return this.data.powerups[id] ?? 0;
+  }
+  static addPowerUp(id: string, n = 1): void {
+    this.data.powerups[id] = this.powerUpCount(id) + n;
+    this.persist();
+  }
+  /** Consume uno. Devuelve false si no había. */
+  static usePowerUp(id: string): boolean {
+    const n = this.powerUpCount(id);
+    if (n <= 0) return false;
+    this.data.powerups[id] = n - 1;
+    this.persist();
+    return true;
+  }
+
+  // --- Misiones diarias ---
+  static get dailyDate(): string {
+    return this.data.dailyDate;
+  }
+  /** Arranca un set nuevo de misiones (borra progreso del día anterior). */
+  static resetDaily(date: string): void {
+    this.data.dailyDate = date;
+    this.data.dailyProgress = {};
+    this.data.dailyClaimed = [];
+    this.persist();
+  }
+  static dailyProgress(id: string): number {
+    return this.data.dailyProgress[id] ?? 0;
+  }
+  static addDailyProgress(id: string, n: number): void {
+    this.data.dailyProgress[id] = this.dailyProgress(id) + n;
+    this.persist();
+  }
+  static isDailyClaimed(id: string): boolean {
+    return this.data.dailyClaimed.includes(id);
+  }
+  static claimDaily(id: string): void {
+    if (!this.data.dailyClaimed.includes(id)) {
+      this.data.dailyClaimed.push(id);
+      this.persist();
+    }
   }
 
   // --- Borrar todos los datos (Ajustes → derecho del usuario, y útil para test) ---

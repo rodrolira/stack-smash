@@ -7,8 +7,13 @@ const R = (COLORS.bgBottom >> 16) & 0xff;
 const G = (COLORS.bgBottom >> 8) & 0xff;
 const B = COLORS.bgBottom & 0xff;
 
-/** Fundido de entrada. Llamar al inicio del create de la escena. */
+/** Fundido de entrada. Llamar al inicio del create de la escena.
+ *
+ * IMPORTANTE: rehabilita el input. `goto()` lo deshabilita durante el fundido de
+ * salida y Phaser NO lo resetea al reiniciar/volver a entrar a una escena, así
+ * que sin esto cualquier pantalla ya visitada quedaba con el touch muerto. */
 export function fadeIn(scene: Phaser.Scene, ms = 220): void {
+  scene.input.enabled = true;
   scene.cameras.main.fadeIn(ms, R, G, B);
 }
 

@@ -6,6 +6,13 @@ export const GAME_HEIGHT = 1280;
 // Versión mostrada en Ajustes (mantener en sync con package.json).
 export const APP_VERSION = '0.1.0';
 
+// El banner de AdMob se SUPERPONE sobre la parte inferior del juego (no empuja
+// el layout). Reservamos esta franja para que la UI de abajo no quede tapada.
+// Usar en las pantallas que muestran banner (menú, tienda, selección).
+// (medido en device real: el banner adaptativo cubre ~la franja inferior de 110 px
+// del juego, así que dejamos margen de sobra)
+export const BANNER_SAFE_Y = GAME_HEIGHT - 185;
+
 // -----------------------------------------------------------------------------
 // COMPLIANCE PARA MENORES (ver skill kids-app-compliance y COMPLIANCE.md).
 // El juego es atractivo para niños, así que aplicamos el trato más conservador
@@ -97,10 +104,11 @@ export const GAME_MODES: Record<GameModeId, GameModeRules> = {
   precision: { perfectOnly: true },
 };
 
-// Catálogo de niveles seleccionables = dificultad (tuning) + modo (mecánica).
-// Cada uno lleva su récord propio (clave = id). LevelSelectScene los lista solo.
-export interface LevelDef {
-  id: string; // clave de récord y de arranque
+// Catálogo de MODOS = dificultad (tuning) + reglas de mecánica.
+// Cada modo contiene NIVELES (ver Stages.ts): niveles numerados con objetivo y
+// estrellas. El id del modo es la clave de récord/progreso.
+export interface ModeDef {
+  id: string;
   label: string;
   blurb: string;
   emoji: string;
@@ -109,7 +117,7 @@ export interface LevelDef {
   mode: GameModeId;
 }
 
-const CLASSIC_LEVELS: LevelDef[] = DIFFICULTY_ORDER.map((d) => ({
+const CLASSIC_MODES: ModeDef[] = DIFFICULTY_ORDER.map((d) => ({
   id: d,
   label: DIFFICULTY_META[d].label,
   blurb: DIFFICULTY_META[d].blurb,
@@ -119,8 +127,8 @@ const CLASSIC_LEVELS: LevelDef[] = DIFFICULTY_ORDER.map((d) => ({
   mode: 'classic',
 }));
 
-export const LEVELS: LevelDef[] = [
-  ...CLASSIC_LEVELS,
+export const MODES: ModeDef[] = [
+  ...CLASSIC_MODES,
   {
     id: 'sprint',
     label: 'Relámpago',
@@ -141,9 +149,12 @@ export const LEVELS: LevelDef[] = [
   },
 ];
 
-export function getLevel(id: string): LevelDef {
-  return LEVELS.find((l) => l.id === id) ?? LEVELS[1]; // fallback: medio
+export function getMode(id: string): ModeDef {
+  return MODES.find((m) => m.id === id) ?? MODES[1]; // fallback: medio
 }
+
+// --- Niveles (stages) dentro de cada modo ---
+export const STAGES_PER_MODE = 10;
 
 // Los primeros N pisos van a velocidad reducida: la primera partida siempre
 // debe sentirse fácil y ganable (ver skill casual-game-mechanics).

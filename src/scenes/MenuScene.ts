@@ -3,7 +3,7 @@ import { GAME_WIDTH, GAME_HEIGHT, COLORS } from '../config';
 import { SaveManager } from '../systems/SaveManager';
 import { AdManager } from '../systems/AdManager';
 import { SoundManager } from '../systems/SoundManager';
-import { nextGoal } from '../systems/Goals';
+import { getDailyMissions, progressOf, isComplete } from '../systems/DailyMissions';
 import { createButton } from '../ui/Button';
 import { drawBackground } from '../ui/background';
 import { fadeIn, goto } from '../ui/transitions';
@@ -48,14 +48,14 @@ export class MenuScene extends Phaser.Scene {
 
     // HUD superior: monedas y mejor puntaje.
     this.add
-      .text(cx, 520, `★ Mejor: ${SaveManager.bestScore}`, {
+      .text(cx, 480, `★ Mejor: ${SaveManager.bestScore}`, {
         fontFamily: 'system-ui, sans-serif',
         fontSize: '40px',
         color: COLORS.textDim,
       })
       .setOrigin(0.5);
     this.add
-      .text(cx, 580, `🪙 ${SaveManager.coins}   ❤ ${SaveManager.lives}`, {
+      .text(cx, 535, `🪙 ${SaveManager.coins}   ❤ ${SaveManager.lives}`, {
         fontFamily: 'system-ui, sans-serif',
         fontSize: '40px',
         color: '#ffd23f',
@@ -66,37 +66,27 @@ export class MenuScene extends Phaser.Scene {
       const parts = [`+${daily.coins} 🪙`];
       if (daily.lives > 0) parts.push(`+${daily.lives} ❤`);
       const s = this.add
-        .text(cx, 640, `¡Racha diaria! ${parts.join('  ')}`, {
+        .text(cx, 585, `¡Racha diaria! ${parts.join('  ')}`, {
           fontFamily: 'system-ui, sans-serif',
-          fontSize: '34px',
+          fontSize: '32px',
           color: '#3ddc97',
           fontStyle: 'bold',
         })
-        .setOrigin(0.5);
-      this.tweens.add({ targets: s, y: 610, alpha: 0, delay: 1800, duration: 1000 });
+        .setOrigin(0.5)
+        .setDepth(5);
+      this.tweens.add({ targets: s, y: 555, alpha: 0, delay: 1800, duration: 1000 });
     }
 
-    // Próxima misión (meta corta) — sistema de enganche.
-    const goal = nextGoal();
-    const goalLabel = goal ? `🎯 Misión: ${goal.label}  (+${goal.reward} 🪙)` : '🏆 ¡Todas las misiones completas!';
-    this.add
-      .text(cx, 700, goalLabel, {
-        fontFamily: 'system-ui, sans-serif',
-        fontSize: '30px',
-        color: goal ? '#ffd23f' : '#3ddc97',
-        align: 'center',
-        wordWrap: { width: GAME_WIDTH - 100 },
-      })
-      .setOrigin(0.5);
+    this.buildDailyMissions(cx, 625);
 
     // Botones principales, con entrada tipo "pop" escalonada.
-    const playBtn = createButton(this, cx, 840, '▶  JUGAR', () => goto(this, 'LevelSelect'), {
+    const playBtn = createButton(this, cx, 880, '▶  JUGAR', () => goto(this, 'ModeSelect'), {
       color: COLORS.good & 0xffffff,
       width: 460,
       height: 130,
       fontSize: 44,
     });
-    const shopBtn = createButton(this, cx, 1000, '🛍  TIENDA', () => goto(this, 'Shop'), {
+    const shopBtn = createButton(this, cx, 1030, '🛍  TIENDA', () => goto(this, 'Shop'), {
       width: 460,
     });
     [playBtn, shopBtn].forEach((btn, i) => {
@@ -113,7 +103,7 @@ export class MenuScene extends Phaser.Scene {
     });
 
     this.add
-      .text(cx, GAME_HEIGHT - 100, 'Un toque para soltar. ¡Apila y no falles!', {
+      .text(cx, GAME_HEIGHT - 160, 'Un toque para soltar. ¡Apila y no falles!', {
         fontFamily: 'system-ui, sans-serif',
         fontSize: '30px',
         color: COLORS.textDim,
@@ -123,6 +113,43 @@ export class MenuScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     this.buildTopIcons();
+  }
+
+  /** Panel de misiones diarias (3 por día, rotan solas). */
+  private buildDailyMissions(cx: number, y: number): void {
+    const missions = getDailyMissions();
+    const w = GAME_WIDTH - 90;
+    const h = 46 + missions.length * 44;
+
+    const bg = this.add.graphics();
+    bg.fillStyle(0x1c1338, 0.85);
+    bg.fillRoundedRect(cx - w / 2, y - 26, w, h, 16);
+    bg.lineStyle(2, COLORS.accent, 0.35);
+    bg.strokeRoundedRect(cx - w / 2, y - 26, w, h, 16);
+
+    this.add
+      .text(cx, y - 2, '📅 MISIONES DE HOY', {
+        fontFamily: 'system-ui, sans-serif',
+        fontSize: '24px',
+        color: '#ffd23f',
+        fontStyle: 'bold',
+      })
+      .setOrigin(0.5);
+
+    missions.forEach((m, i) => {
+      const my = y + 36 + i * 44;
+      const done = isComplete(m);
+      const line = done
+        ? `✔  ${m.label}`
+        : `${m.label}  (${progressOf(m)}/${m.target})  +${m.reward} 🪙`;
+      this.add
+        .text(cx - w / 2 + 24, my, line, {
+          fontFamily: 'system-ui, sans-serif',
+          fontSize: '23px',
+          color: done ? '#3ddc97' : COLORS.textDim,
+        })
+        .setOrigin(0, 0.5);
+    });
   }
 
   // Bloques decorativos que flotan hacia arriba, detrás del contenido.

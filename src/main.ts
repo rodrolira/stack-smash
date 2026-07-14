@@ -2,7 +2,8 @@ import Phaser from 'phaser';
 import { GAME_WIDTH, GAME_HEIGHT } from './config';
 import { BootScene } from './scenes/BootScene';
 import { MenuScene } from './scenes/MenuScene';
-import { LevelSelectScene } from './scenes/LevelSelectScene';
+import { ModeSelectScene } from './scenes/ModeSelectScene';
+import { StageSelectScene } from './scenes/StageSelectScene';
 import { GameScene } from './scenes/GameScene';
 import { ShopScene } from './scenes/ShopScene';
 import { PrivacyScene } from './scenes/PrivacyScene';
@@ -25,7 +26,8 @@ const config: Phaser.Types.Core.GameConfig = {
   scene: [
     BootScene,
     MenuScene,
-    LevelSelectScene,
+    ModeSelectScene,
+    StageSelectScene,
     GameScene,
     ShopScene,
     PrivacyScene,

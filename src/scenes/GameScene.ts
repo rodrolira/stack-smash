@@ -8,8 +8,8 @@ import {
   Difficulty,
   GameModeRules,
   GAME_MODES,
-  LevelDef,
-  getLevel,
+  ModeDef,
+  getMode,
   WARMUP_FLOORS,
   WARMUP_SPEED_FACTOR,
   PERFECT_REGROW,
@@ -20,6 +20,17 @@ import { AdManager } from '../systems/AdManager';
 import { SoundManager } from '../systems/SoundManager';
 import { HapticsManager } from '../systems/HapticsManager';
 import { claimNewlyCompleted, Goal } from '../systems/Goals';
+import {
+  getStage,
+  Stage,
+  starsFor,
+  recordStars,
+  progressFor,
+  stageGoalText,
+  RunResult,
+} from '../systems/Stages';
+import { POWERUPS, POWERUP_EFFECTS, PowerUpId } from '../systems/PowerUps';
+import { reportRun } from '../systems/DailyMissions';
 import { getSkin } from '../systems/Skins';
 import { createButton } from '../ui/Button';
 import { drawBackground } from '../ui/background';
@@ -31,12 +42,16 @@ const EDGE_MARGIN = 40;
 const CAMERA_ANCHOR = 0.42; // dónde queda la acción en pantalla (0=arriba)
 
 interface GameData {
-  levelId?: string;
+  modeId?: string;
+  stageIndex?: number;
 }
 
 export class GameScene extends Phaser.Scene {
-  private levelId = 'medio';
-  private level!: LevelDef;
+  private modeId = 'medio';
+  private stageIndex = 1;
+  private level!: ModeDef;
+  private stage!: Stage;
+  private objectiveText!: Phaser.GameObjects.Text;
   private difficulty: Difficulty = 'medio';
   private rules: GameModeRules = {};
 
@@ -56,6 +71,13 @@ export class GameScene extends Phaser.Scene {
   private isOver = false;
   private perfectCombo = 0;
   private maxCombo = 0;
+  private starsThisRun = 0;
+  private improvedStars = false;
+  private perfectsThisRun = 0;
+  private shieldActive = false;
+  private slowUntilMs = 0;
+  private powerBar?: Phaser.GameObjects.Container;
+  private shieldIcon?: Phaser.GameObjects.Text;
   private timeLeftMs = 0;
   private timerText?: Phaser.GameObjects.Text;
   private paused = false;
@@ -73,8 +95,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   create(data: GameData): void {
-    this.levelId = data.levelId ?? 'medio';
-    this.level = getLevel(this.levelId);
+    this.modeId = data.modeId ?? 'medio';
+    this.stageIndex = data.stageIndex ?? 1;
+    this.level = getMode(this.modeId);
+    this.stage = getStage(this.modeId, this.stageIndex);
     this.difficulty = this.level.difficulty;
     this.rules = GAME_MODES[this.level.mode];
     // Color base = fondo del gradiente (no negro), por si en algún frame la
@@ -126,6 +150,7 @@ export class GameScene extends Phaser.Scene {
 
     // HUD (fijo a la cámara).
     this.buildHUD();
+    this.buildPowerBar();
 
     // Primer bloque en movimiento.
     this.spawnMovingBlock();
@@ -237,8 +262,15 @@ export class GameScene extends Phaser.Scene {
     this.isOver = false;
     this.perfectCombo = 0;
     this.maxCombo = 0;
+    this.perfectsThisRun = 0;
+    this.starsThisRun = 0;
+    this.improvedStars = false;
+    this.shieldActive = false;
+    this.slowUntilMs = 0;
+    this.shieldIcon = undefined;
     this.colorIndex = 0;
-    this.speed = DIFFICULTY[this.difficulty].speed;
+    // La velocidad base sube con el nivel dentro del modo.
+    this.speed = DIFFICULTY[this.difficulty].speed * this.stage.speedMul;
     this.direction = 1;
     this.movingActive = false;
     this.paused = false;
@@ -255,12 +287,32 @@ export class GameScene extends Phaser.Scene {
     let s = this.speed;
     if (this.score < WARMUP_FLOORS) s *= WARMUP_SPEED_FACTOR;
     const t = Math.min(this.score / 35, 1);
-    const cap = params.maxSpeed * (1 + t * 0.35); // hasta +35% en lo más alto
-    return Math.min(s, cap);
+    const cap = params.maxSpeed * this.stage.speedMul * (1 + t * 0.35);
+    let out = Math.min(s, cap);
+    // Power-up de cámara lenta.
+    if (this.time.now < this.slowUntilMs) out *= POWERUP_EFFECTS.slowFactor;
+    return out;
   }
 
   private hudStatsText(): string {
     return `🪙 ${SaveManager.coins}   ❤ ${SaveManager.lives}`;
+  }
+
+  /** Resultado actual de la partida, para objetivos y estrellas. */
+  private runResult(): RunResult {
+    return { floors: this.score, perfects: this.maxCombo, coins: this.coinsThisRun };
+  }
+
+  /** Objetivo del nivel con progreso en vivo; se pone verde al cumplirlo. */
+  private updateObjectiveText(): void {
+    if (!this.objectiveText) return;
+    const done = progressFor(this.stage, this.runResult());
+    const target = this.stage.targets[0];
+    const stars = starsFor(this.stage, this.runResult());
+    this.objectiveText.setText(
+      `🎯 ${stageGoalText(this.stage)}  (${done}/${target})  ${'⭐'.repeat(stars)}`
+    );
+    this.objectiveText.setColor(stars > 0 ? '#3ddc97' : COLORS.textDim);
   }
 
   // --- Pausa ---
@@ -293,7 +345,7 @@ export class GameScene extends Phaser.Scene {
       })
     );
     panel.add(
-      createButton(this, cx, 770, '↻  REINICIAR', () => this.scene.restart({ levelId: this.levelId }), {
+      createButton(this, cx, 770, '↻  REINICIAR', () => this.scene.restart({ modeId: this.modeId, stageIndex: this.stageIndex }), {
         width: 520,
         fontSize: 36,
       })
@@ -343,17 +395,29 @@ export class GameScene extends Phaser.Scene {
       .setInteractive({ useHandCursor: true })
       .on('pointerdown', () => this.pauseGame());
 
-    // Etiqueta del nivel/modo actual, con su acento.
+    // Modo + número de nivel, con su acento.
     this.add
-      .text(GAME_WIDTH / 2, 180, `${this.level.emoji} ${this.level.label}`, {
+      .text(GAME_WIDTH / 2, 175, `${this.level.emoji} ${this.level.label} · Nivel ${this.stageIndex}`, {
         fontFamily: 'system-ui, sans-serif',
-        fontSize: '30px',
+        fontSize: '28px',
         color: '#' + this.level.color.toString(16).padStart(6, '0'),
         fontStyle: 'bold',
       })
       .setOrigin(0.5)
       .setScrollFactor(0)
       .setDepth(50);
+
+    // Objetivo del nivel, con progreso en vivo.
+    this.objectiveText = this.add
+      .text(GAME_WIDTH / 2, 215, '', {
+        fontFamily: 'system-ui, sans-serif',
+        fontSize: '26px',
+        color: COLORS.textDim,
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0)
+      .setDepth(50);
+    this.updateObjectiveText();
 
     // Reloj (solo en modos contrarreloj, ej. Relámpago).
     if (this.rules.timeLimitMs) {
@@ -369,6 +433,123 @@ export class GameScene extends Phaser.Scene {
         .setDepth(50);
       this.updateTimerText();
     }
+  }
+
+  // --- Power-ups ---
+  /** Barra inferior con los power-ups en inventario. Se activan tocándolos. */
+  private buildPowerBar(): void {
+    this.powerBar?.destroy();
+    const bar = this.add.container(0, 0).setScrollFactor(0).setDepth(52);
+    const y = GAME_HEIGHT - 80;
+    const startX = GAME_WIDTH / 2 - 170;
+
+    POWERUPS.forEach((p, i) => {
+      const count = SaveManager.powerUpCount(p.id);
+      const x = startX + i * 170;
+      const w = 150;
+      const h = 96;
+      const enabled = count > 0;
+
+      const item = this.add.container(x, y).setScrollFactor(0);
+      const bg = this.add.graphics();
+      bg.fillStyle(enabled ? p.color : 0x2a2340, enabled ? 0.95 : 0.6);
+      bg.fillRoundedRect(-w / 2, -h / 2, w, h, 16);
+      item.add(bg);
+      item.add(
+        this.add.text(-18, -6, p.emoji, { fontSize: '40px' }).setOrigin(0.5).setAlpha(enabled ? 1 : 0.4)
+      );
+      item.add(
+        this.add
+          .text(34, -6, `x${count}`, {
+            fontFamily: 'system-ui, sans-serif',
+            fontSize: '28px',
+            color: enabled ? '#ffffff' : '#8a80a6',
+            fontStyle: 'bold',
+          })
+          .setOrigin(0.5)
+      );
+
+      if (enabled) {
+        item.setSize(w, h);
+        item.setInteractive(
+          new Phaser.Geom.Rectangle(-w / 2, -h / 2, w, h),
+          Phaser.Geom.Rectangle.Contains
+        );
+        item.on('pointerdown', () => this.usePowerUp(p.id));
+      }
+      bar.add(item);
+    });
+
+    this.powerBar = bar;
+  }
+
+  private usePowerUp(id: PowerUpId): void {
+    if (this.isOver || this.paused) return;
+    if (!SaveManager.usePowerUp(id)) return;
+
+    SoundManager.perfect(4);
+    HapticsManager.success();
+
+    switch (id) {
+      case 'shield':
+        this.shieldActive = true;
+        this.updateShieldIcon();
+        this.banner('🛡️ Escudo activo', '#3ddc97');
+        break;
+      case 'slow':
+        this.slowUntilMs = this.time.now + POWERUP_EFFECTS.slowDurationMs;
+        this.banner('🐢 Cámara lenta', '#2ec5ff');
+        break;
+      case 'wide': {
+        const nw = Math.min(this.prevWidth + POWERUP_EFFECTS.wideBonus, START_WIDTH);
+        this.prevWidth = nw;
+        this.lastPlaced?.setSize(nw, BLOCK_HEIGHT);
+        if (this.movingActive) this.movingBlock.setSize(nw, BLOCK_HEIGHT);
+        this.banner('📏 Bloque ancho', '#ff8f3d');
+        break;
+      }
+    }
+    this.buildPowerBar(); // refresca los contadores
+  }
+
+  private updateShieldIcon(): void {
+    if (this.shieldActive && !this.shieldIcon) {
+      this.shieldIcon = this.add
+        .text(GAME_WIDTH - 40, 120, '🛡️', { fontSize: '40px' })
+        .setOrigin(1, 0.5)
+        .setScrollFactor(0)
+        .setDepth(50);
+      this.tweens.add({
+        targets: this.shieldIcon,
+        alpha: 0.5,
+        duration: 700,
+        yoyo: true,
+        repeat: -1,
+      });
+    } else if (!this.shieldActive && this.shieldIcon) {
+      this.tweens.killTweensOf(this.shieldIcon);
+      this.shieldIcon.destroy();
+      this.shieldIcon = undefined;
+    }
+  }
+
+  /** Si hay escudo activo, lo consume y salva la partida. */
+  private tryShield(): boolean {
+    if (!this.shieldActive) return false;
+    this.shieldActive = false;
+    this.updateShieldIcon();
+    this.perfectCombo = 0;
+    this.prevWidth = Math.max(this.prevWidth, POWERUP_EFFECTS.shieldMinWidth);
+    this.lastPlaced?.setSize(this.prevWidth, BLOCK_HEIGHT);
+    this.cameras.main.flash(240, 60, 220, 150);
+    SoundManager.perfect(6);
+    HapticsManager.success();
+    this.banner('🛡️ ¡Escudo te salvó!', '#3ddc97');
+    this.movingBlock.destroy();
+    this.time.delayedCall(120, () => {
+      if (!this.isOver) this.spawnMovingBlock();
+    });
+    return true;
   }
 
   private updateTimerText(): void {
@@ -487,11 +668,12 @@ export class GameScene extends Phaser.Scene {
     const deltaX = this.movingBlock.x - this.prevX;
     const overlap = this.prevWidth - Math.abs(deltaX);
 
-    // Fallo total: no hay solapamiento → game over.
+    // Fallo total: no hay solapamiento → game over (salvo escudo).
     if (overlap <= 0) {
       SoundManager.smash();
       HapticsManager.smash();
       this.dropFalling(this.movingBlock.x, this.movingBlock.width, this.skinColor());
+      if (this.tryShield()) return; // el escudo destruye el bloque y sigue
       this.movingBlock.destroy();
       this.gameOver();
       return;
@@ -506,6 +688,7 @@ export class GameScene extends Phaser.Scene {
       const overhangW = Math.abs(deltaX);
       const overhangX = deltaX > 0 ? this.prevX + this.prevWidth / 2 : this.prevX - this.prevWidth / 2;
       this.dropFalling(overhangX, overhangW || this.movingBlock.width, this.skinColor());
+      if (this.tryShield()) return;
       this.movingBlock.destroy();
       this.gameOver();
       return;
@@ -518,6 +701,7 @@ export class GameScene extends Phaser.Scene {
     if (isPerfect) {
       // Perfect: se alinea, RECUPERA un poco de ancho y encadena combo.
       this.perfectCombo++;
+      this.perfectsThisRun++;
       this.maxCombo = Math.max(this.maxCombo, this.perfectCombo);
       newX = this.prevX;
       newWidth = Math.min(this.prevWidth + PERFECT_REGROW, START_WIDTH);
@@ -563,6 +747,7 @@ export class GameScene extends Phaser.Scene {
     this.awardCoins(coins, newX);
     this.scoreText.setText(String(this.score));
     this.pulseScore();
+    this.updateObjectiveText();
 
     // Hito cada 10 pisos: celebración + bonus.
     if (this.score > 0 && this.score % 10 === 0) this.celebrateMilestone();
@@ -723,7 +908,26 @@ export class GameScene extends Phaser.Scene {
     SoundManager.gameOver();
     HapticsManager.gameOver();
 
-    const isRecord = SaveManager.reportScore(this.score, this.levelId);
+    const isRecord = SaveManager.reportScore(this.score, this.modeId);
+
+    // Estrellas del nivel según el resultado; se guardan si mejoran las previas.
+    this.starsThisRun = starsFor(this.stage, this.runResult());
+    this.improvedStars = recordStars(this.modeId, this.stageIndex, this.starsThisRun);
+
+    // Misiones diarias: sumar el resultado y avisar las que se completaron.
+    const doneMissions = reportRun({
+      floors: this.score,
+      perfects: this.perfectsThisRun,
+      coins: this.coinsThisRun,
+      stars: this.improvedStars ? this.starsThisRun : 0,
+    });
+    doneMissions.forEach((m, i) => {
+      this.time.delayedCall(900 + i * 900, () => {
+        SoundManager.coin();
+        HapticsManager.success();
+        this.banner(`📅 ${m.label}  +${m.reward} 🪙`, '#ffd23f');
+      });
+    });
 
     // Interstitial (respeta frecuencia y adsRemoved) tras la partida.
     AdManager.maybeShowInterstitial();
@@ -765,20 +969,54 @@ export class GameScene extends Phaser.Scene {
     );
     panel.add(
       this.add
-        .text(cx, 530, `${this.level.emoji} ${this.level.label}  ·  ★ ${SaveManager.bestScoreFor(this.levelId)}`, {
-          fontFamily: 'system-ui, sans-serif',
-          fontSize: '30px',
-          color: COLORS.textDim,
-        })
+        .text(
+          cx,
+          530,
+          `${this.level.emoji} ${this.level.label} · Nivel ${this.stageIndex}  ·  ★ ${SaveManager.bestScoreFor(this.modeId)}`,
+          {
+            fontFamily: 'system-ui, sans-serif',
+            fontSize: '26px',
+            color: COLORS.textDim,
+          }
+        )
         .setOrigin(0.5)
     );
+
+    // Estrellas ganadas en este nivel (aparecen de a una, con "pop").
+    const starRow = this.add
+      .text(cx, 590, '☆ ☆ ☆', { fontSize: '54px', color: '#ffd23f' })
+      .setOrigin(0.5);
+    panel.add(starRow);
+    const filled = '⭐'.repeat(this.starsThisRun) + '☆'.repeat(3 - this.starsThisRun);
+    this.time.delayedCall(400, () => {
+      if (!starRow.active) return;
+      starRow.setText(filled.split('').join(' '));
+      starRow.setScale(0.5);
+      this.tweens.add({ targets: starRow, scale: 1, duration: 380, ease: 'Back.out' });
+      if (this.starsThisRun > 0) {
+        SoundManager.perfect(this.starsThisRun + 3);
+        HapticsManager.success();
+      }
+    });
+    if (this.improvedStars && this.starsThisRun > 0) {
+      panel.add(
+        this.add
+          .text(cx, 645, '¡Nivel superado!', {
+            fontFamily: 'system-ui, sans-serif',
+            fontSize: '28px',
+            color: '#3ddc97',
+            fontStyle: 'bold',
+          })
+          .setOrigin(0.5)
+      );
+    }
 
     // Revivir viendo un anuncio recompensado (una vez por partida, opt-in).
     if (!this.usedRevive) {
       const reviveBtn = createButton(
         this,
         cx,
-        640,
+        720,
         '▶  REVIVIR (anuncio)',
         () => this.reviveWithAd(panel, reviveBtn),
         { color: COLORS.good & 0xffffff, width: 520, fontSize: 36 }
@@ -793,10 +1031,10 @@ export class GameScene extends Phaser.Scene {
       const retryBtn = createButton(
         this,
         cx,
-        800,
+        860,
         `↻  REINTENTAR (❤ ${SaveManager.lives})`,
         () => {
-          if (SaveManager.useLife()) this.scene.restart({ levelId: this.levelId });
+          if (SaveManager.useLife()) this.scene.restart({ modeId: this.modeId, stageIndex: this.stageIndex });
         },
         { width: 520, fontSize: 36 }
       );
@@ -805,7 +1043,7 @@ export class GameScene extends Phaser.Scene {
       const lifeBtn = createButton(
         this,
         cx,
-        800,
+        860,
         '▶  +1 VIDA (anuncio)',
         () => this.earnLifeWithAd(),
         { color: COLORS.accent & 0xffffff, width: 520, fontSize: 36 }
@@ -813,7 +1051,18 @@ export class GameScene extends Phaser.Scene {
       panel.add(lifeBtn);
     }
 
-    const menuBtn = createButton(this, cx, 950, '🏠  MENÚ', () => goto(this, 'Menu'), {
+    // Volver a la lista de niveles del modo (más útil que ir al menú).
+    const stagesBtn = createButton(
+      this,
+      cx,
+      1000,
+      '≡  NIVELES',
+      () => goto(this, 'StageSelect', { modeId: this.modeId }),
+      { width: 520, fontSize: 36 }
+    );
+    panel.add(stagesBtn);
+
+    const menuBtn = createButton(this, cx, 1130, '🏠  MENÚ', () => goto(this, 'Menu'), {
       width: 520,
       fontSize: 36,
     });
