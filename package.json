@@ -1,0 +1,27 @@
+{
+  "name": "stack-smash",
+  "version": "0.1.0",
+  "description": "Stack & Smash — juego móvil hyper-casual (Phaser 3 + Capacitor + TypeScript)",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "cap:sync": "cap sync",
+    "cap:android": "cap open android",
+    "cap:ios": "cap open ios"
+  },
+  "dependencies": {
+    "@capacitor-community/admob": "^6.2.0",
+    "@capacitor/android": "^6.2.1",
+    "@capacitor/core": "^6.1.2",
+    "@revenuecat/purchases-capacitor": "^9.2.2",
+    "phaser": "^3.80.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.1.2",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.2"
+  }
+}

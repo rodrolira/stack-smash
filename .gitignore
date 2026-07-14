@@ -1,0 +1,23 @@
+node_modules/
+dist/
+*.log
+
+# Capacitor / nativo generado
+android/
+ios/
+.gradle/
+DerivedData/
+
+# Editor / SO
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Secretos / firmas — NUNCA commitear
+*.keystore
+*.jks
+google-services.json
+GoogleService-Info.plist
+.env
+.env.local
